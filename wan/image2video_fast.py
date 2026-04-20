@@ -5,6 +5,7 @@ import os
 import random
 import sys
 import types
+import time
 from contextlib import contextmanager
 from functools import partial
 
@@ -419,6 +420,8 @@ class WanI2VFast:
             num_inference_chunk = len(latents_chunk)
             pred_latent_chunks = []
             for chunk_id in tqdm(range(num_inference_chunk)):
+                torch.cuda.synchronize()
+                tic = time.time()
                 current_latent = latents_chunk[chunk_id]
                 current_condition = condition_chunk[chunk_id]
                 current_c2ws_plucker_emb = c2ws_plucker_emb_chunk[chunk_id]
@@ -444,6 +447,7 @@ class WanI2VFast:
                 for timestep_idx in range(len(timesteps)):
                     latent_model_input = [current_latent.to(self.device)]
                     current_timestep = [timesteps[timestep_idx]]
+                    print("current_timestep", current_timestep)
     
                     timestep = torch.stack(current_timestep).to(self.device)
                  
@@ -469,6 +473,13 @@ class WanI2VFast:
 
                 pred_latent_chunks.append(x0)
 
+                torch.cuda.synchronize()
+                toc = time.time()
+                print(
+                    f"Time taken: {toc - tic} seconds for chunk {chunk_id}. "
+                    f"Generated x0 shape: {x0.shape}"
+                )
+
                 # Update kv cache
                 context_timestep = [timesteps[-1] * 0.0]
                 timestep = torch.stack(context_timestep).to(self.device)
@@ -481,8 +492,7 @@ class WanI2VFast:
                 torch.cuda.empty_cache()
 
             if self.rank == 0:
-                videos = self.vae.decode([pred_latent_chunks])
-
+                videos = self.vae.decode([pred_latent_chunks])                
         # del noise, latent, x0
         # del sample_scheduler
         if offload_model:
