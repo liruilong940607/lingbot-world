@@ -270,6 +270,7 @@ def generate(args):
         max_attention_size=args.max_attention_size)
 
     if rank == 0:
+        print("video shape", video.shape)
         os.makedirs(args.save_dir, exist_ok=True)
         if args.save_file is None:
             formatted_time = datetime.now().strftime("%Y%m%d_%H%M%S")

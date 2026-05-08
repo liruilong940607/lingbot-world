@@ -5,6 +5,7 @@ import os
 import random
 import sys
 import types
+import time
 from contextlib import contextmanager
 from functools import partial
 
@@ -284,14 +285,14 @@ class WanI2VFast:
         seed = seed if seed >= 0 else random.randint(0, sys.maxsize)
         seed_g = torch.Generator(device=self.device)
         seed_g.manual_seed(seed)
-        noise = torch.randn(
-            16,
-            lat_f,
-            lat_h,
-            lat_w,
-            dtype=torch.float32,
-            generator=seed_g,
-            device=self.device)
+        # noise = torch.randn(
+        #     16,
+        #     lat_f,
+        #     lat_h,
+        #     lat_w,
+        #     dtype=torch.float32,
+        #     generator=seed_g,
+        #     device=self.device)
 
         msk = torch.ones(1, F, lat_h, lat_w, device=self.device)
         msk[:, 1:] = 0
@@ -391,7 +392,7 @@ class WanI2VFast:
         # Initialize KV cache to all zeros
         model_args = self.model.config
         transformer_dtype = self.pipe_dtype
-        frame_seqlen = int(noise.shape[-2] * noise.shape[-1]// 4)
+        frame_seqlen = int(lat_h * lat_w // 4)
         kv_size = frame_seqlen * lat_f
         head_dim = model_args.dim // model_args.num_heads
         local_num_heads = model_args.num_heads // self.sp_size
@@ -412,14 +413,24 @@ class WanI2VFast:
                 no_sync_model(),
         ):
             # sample videos
-            latent = noise
-            latents_chunk = latent.split(chunk_size, dim=1) # [c, f, h, w]
+            # latent = noise
+            # latents_chunk = latent.split(chunk_size, dim=1) # [c, f, h, w]
             condition_chunk = y.split(chunk_size, dim=1)
             c2ws_plucker_emb_chunk = c2ws_plucker_emb.split(chunk_size, dim=2)
-            num_inference_chunk = len(latents_chunk)
+            num_inference_chunk = len(condition_chunk)
             pred_latent_chunks = []
             for chunk_id in tqdm(range(num_inference_chunk)):
-                current_latent = latents_chunk[chunk_id]
+                torch.cuda.synchronize()
+                tic = time.time()
+                current_latent = torch.randn(
+                    chunk_size,
+                    16,
+                    lat_h,
+                    lat_w,
+                    dtype=torch.float32,
+                    generator=seed_g,
+                    device=self.device).permute(1, 0, 2, 3)
+                # current_latent = latents_chunk[chunk_id]
                 current_condition = condition_chunk[chunk_id]
                 current_c2ws_plucker_emb = c2ws_plucker_emb_chunk[chunk_id]
 
@@ -444,6 +455,7 @@ class WanI2VFast:
                 for timestep_idx in range(len(timesteps)):
                     latent_model_input = [current_latent.to(self.device)]
                     current_timestep = [timesteps[timestep_idx]]
+                    # print("current_timestep", current_timestep)
     
                     timestep = torch.stack(current_timestep).to(self.device)
                  
@@ -462,12 +474,30 @@ class WanI2VFast:
 
                     if timestep_idx < len(timesteps) - 1:
                         next_timestep = timesteps[timestep_idx + 1]
-                        current_latent = self.scheduler.add_noise(x0, torch.randn(x0.shape, generator=seed_g, device=x0.device, dtype=x0.dtype), next_timestep)
+                        next_noise = torch.randn(
+                            (
+                                chunk_size,
+                                16,
+                                lat_h,
+                                lat_w,
+                            ),
+                            generator=seed_g, 
+                            device=x0.device, 
+                            dtype=x0.dtype
+                        ).permute(1, 0, 2, 3)
+                        current_latent = self.scheduler.add_noise(x0, next_noise, next_timestep)
                     else:
                         # note return x0
                         break
 
                 pred_latent_chunks.append(x0)
+
+                torch.cuda.synchronize()
+                toc = time.time()
+                print(
+                    f"Time taken: {toc - tic} seconds for chunk {chunk_id}. "
+                    f"Generated x0 shape: {x0.shape}"
+                )
 
                 # Update kv cache
                 context_timestep = [timesteps[-1] * 0.0]
@@ -481,8 +511,7 @@ class WanI2VFast:
                 torch.cuda.empty_cache()
 
             if self.rank == 0:
-                videos = self.vae.decode([pred_latent_chunks])
-
+                videos = self.vae.decode([pred_latent_chunks])                
         # del noise, latent, x0
         # del sample_scheduler
         if offload_model:
