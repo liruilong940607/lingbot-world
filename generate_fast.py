@@ -268,9 +268,9 @@ def generate(args):
         seed=args.base_seed,
         offload_model=args.offload_model,
         max_attention_size=args.max_attention_size)
-    print("video shape", video.shape)
 
     if rank == 0:
+        print("video shape", video.shape)
         os.makedirs(args.save_dir, exist_ok=True)
         if args.save_file is None:
             formatted_time = datetime.now().strftime("%Y%m%d_%H%M%S")

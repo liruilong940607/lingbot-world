@@ -1,8 +1,22 @@
+# Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 import torch
 
 try:
+    from flash_attn.cute import flash_attn_func, flash_attn_varlen_func
+
+    FLASH_ATTN_4_AVAILABLE = True
+except (ModuleNotFoundError, ImportError):
+    FLASH_ATTN_4_AVAILABLE = False
+
+try:
     import flash_attn_interface
-    FLASH_ATTN_3_AVAILABLE = True
+
+    def is_hopper_gpu():
+        if not torch.cuda.is_available():
+            return False
+        device_name = torch.cuda.get_device_name(0).lower()
+        return "h100" in device_name or "hopper" in device_name
+    FLASH_ATTN_3_AVAILABLE = is_hopper_gpu()
 except ModuleNotFoundError:
     FLASH_ATTN_3_AVAILABLE = False
 
@@ -90,7 +104,24 @@ def flash_attention(
         )
 
     # apply attention
-    if (version is None or version == 3) and FLASH_ATTN_3_AVAILABLE:
+    if FLASH_ATTN_4_AVAILABLE:
+        x = flash_attn_varlen_func(
+            q=q,
+            k=k,
+            v=v,
+            cu_seqlens_q=torch.cat([q_lens.new_zeros([1]), q_lens]).cumsum(
+                0, dtype=torch.int32).to(q.device, non_blocking=True),
+            cu_seqlens_k=torch.cat([k_lens.new_zeros([1]), k_lens]).cumsum(
+                0, dtype=torch.int32).to(q.device, non_blocking=True),
+            seqused_q=None,
+            seqused_k=None,
+            max_seqlen_q=lq,
+            max_seqlen_k=lk,
+            softmax_scale=softmax_scale,
+            causal=causal,
+            deterministic=deterministic)[0].unflatten(0, (b, lq))
+
+    elif (version is None or version == 3) and FLASH_ATTN_3_AVAILABLE:
         # Note: dropout_p, window_size are not supported in FA3 now.
         x = flash_attn_interface.flash_attn_varlen_func(
             q=q,
@@ -144,7 +175,7 @@ def attention(
     dtype=torch.bfloat16,
     fa_version=None,
 ):
-    if FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE:
+    if FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE or FLASH_ATTN_4_AVAILABLE:
         return flash_attention(
             q=q,
             k=k,

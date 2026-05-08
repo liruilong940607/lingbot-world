@@ -1,10 +1,25 @@
-pip install easydict
+# GB200
+cd ../flash-attention/
+uv pip install -e "flash_attn/cute[dev,cu13]"  # CUDA 13.x (e.g. B200)
+cd -
 
-# add "from loguru import logger" to
-# vim /usr/local/lib/python3.12/dist-packages/diffusers/quantizers/torchao/torchao_quantizer.py, line 93
+uv pip install omegaconf imageio[ffmpeg] easydict lmdb diffusers
+uv run --no-project \
+  python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=1 \
+    generate_fast.py \
+    --task i2v-A14B \
+    --size 480*832 \
+    --ckpt_dir lingbot-world-base-cam \
+    --image examples/00/image.jpg \
+    --action_path examples/00 \
+    --ulysses_size 1 \
+    --frame_num 237 \
+    --base_seed 44 \
+    --offload_model False \
+    --prompt "The video presents a soaring journey through a fantasy jungle. The wind whips past the rider's blue hands gripping the reins, causing the leather straps to vibrate. The ancient gothic castle approaches steadily, its stone details becoming clearer against the backdrop of floating islands and distant waterfalls."
 
-# bash run_fast.sh lingbot-world-base-cam 201
-bash run_fast.sh lingbot-world-base-cam 237
-
-
-# [2026-04-14 22:08:37,357] INFO: Generation model config: {'__name__': 'Config: Wan I2V A14B', 't5_model': 'umt5_xxl', 't5_dtype': torch.bfloat16, 'text_len': 512, 'param_dtype': torch.bfloat16, 'num_train_timesteps': 1000, 'sample_fps': 16, 'sample_neg_prompt': '画面突变，色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走，镜头晃动，画面闪烁，模糊，噪点，水印，签名，文字，变形，扭曲，液化，不合逻辑的结构，卡顿，PPT幻灯片感，过暗，欠曝，低对比度，霓虹灯光感，过度锐化，3D渲染感，人物，行人，游客，身体，皮肤，肢体，面部特征，汽车，电线', 'frame_num': 81, 't5_checkpoint': 'models_t5_umt5-xxl-enc-bf16.pth', 't5_tokenizer': 'google/umt5-xxl', 'vae_checkpoint': 'Wan2.1_VAE.pth', 'vae_stride': (4, 8, 8), 'patch_size': (1, 2, 2), 'dim': 5120, 'ffn_dim': 13824, 'freq_dim': 256, 'num_heads': 40, 'num_layers': 40, 'window_size': (-1, -1), 'qk_norm': True, 'cross_attn_norm': True, 'eps': 1e-06, 'low_noise_checkpoint': 'low_noise_model', 'high_noise_checkpoint': 'high_noise_model', 'fast_noise_checkpoint': 'lingbot_world_fast', 'sample_shift': 10.0, 'sample_steps': 70, 'boundary': 0.947, 'sample_guide_scale': (5.0, 5.0)}
+# GB200 DiT
+# > Time taken: 1.6597743034362793 seconds for chunk 16. Generated x0 shape: torch.Size([16, 3, 58, 104])
+# > Time taken: 1.7009646892547607 seconds for chunk 17. Generated x0 shape: torch.Size([16, 3, 58, 104])
+# > Time taken: 1.74271559715271 seconds for chunk 18. Generated x0 shape: torch.Size([16, 3, 58, 104])
+# > Time taken: 1.784914493560791 seconds for chunk 19. Generated x0 shape: torch.Size([16, 3, 58, 104])
